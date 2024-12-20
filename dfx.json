@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "canisters": {
+    "capsule": {
+      "type": "rust",
+      "package": "capsule",
+      "candid": "src/capsule/capsule.did"
+    }
+  },
+  "output_env_file": ".env"
+}
