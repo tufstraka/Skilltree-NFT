@@ -1,0 +1,30 @@
+type Result = variant { Ok; Err : text };
+type Result_1 = variant { Ok : nat64; Err : text };
+type SkillNFT = record {
+  id : nat64;
+  title : text;
+  creator : principal;
+  owner : principal;
+  unlock_duration : opt nat64;
+  metadata : vec record { text; text };
+  description : text;
+  is_active : bool;
+  resale_price : opt nat64;
+  price : nat64;
+};
+service : {
+  add_balance : (nat64) -> (Result);
+  deactivate_nft : (nat64) -> (Result);
+  get_active_nfts : () -> (vec SkillNFT) query;
+  get_nft : (nat64) -> (opt SkillNFT) query;
+  get_user_nfts : (principal) -> (vec SkillNFT) query;
+  mint_skill_nft : (
+      text,
+      text,
+      nat64,
+      opt nat64,
+      vec record { text; text },
+    ) -> (Result_1);
+  purchase_skill_nft : (nat64) -> (Result);
+  set_resale_price : (nat64, nat64) -> (Result);
+}
