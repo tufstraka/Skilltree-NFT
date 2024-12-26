@@ -27,4 +27,5 @@ service : {
     ) -> (Result_1);
   purchase_skill_nft : (nat64) -> (Result);
   set_resale_price : (nat64, nat64) -> (Result);
+  transfer_nft_ownership : (nat64, principal) -> (Result);
 }

@@ -21,7 +21,7 @@ struct SkillNFT {
     metadata: HashMap<String, String>, // Additional details (e.g., level, requirements)
     owner: Principal,
     resale_price: Option<u64>,
-    is_active: bool, 
+    is_active: bool,
 }
 
 #[derive(Clone, Debug, CandidType, Serialize, Deserialize, Default)]
@@ -52,6 +52,30 @@ fn post_upgrade() {
     });
 }
 
+/// Helper function to validate input fields.
+fn validate_input(title: &str, description: &str, price: u64) -> Result<(), String> {
+    if title.trim().is_empty() {
+        return Err("Title cannot be empty".to_string());
+    }
+    if description.trim().is_empty() {
+        return Err("Description cannot be empty".to_string());
+    }
+    if price == 0 {
+        return Err("Price must be greater than zero".to_string());
+    }
+    Ok(())
+}
+
+/// Generate a unique ID for new NFTs.
+fn generate_unique_id() -> u64 {
+    STATE.with(|state| {
+        let mut state = state.borrow_mut();
+        let id = state.next_id;
+        state.next_id += 1;
+        id
+    })
+}
+
 /// Mint a new SkillNFT.
 #[update]
 fn mint_skill_nft(
@@ -59,26 +83,29 @@ fn mint_skill_nft(
     description: String,
     price: u64,
     unlock_duration: Option<u64>,
-    metadata: HashMap<String, String>
+    metadata: HashMap<String, String>,
 ) -> Result<u64, String> {
+    validate_input(&title, &description, price)?;
+
     let creator = api::caller();
+    let id = generate_unique_id();
+
+    let nft = SkillNFT {
+        id,
+        title,
+        description,
+        creator,
+        price,
+        unlock_duration,
+        metadata,
+        owner: creator,
+        resale_price: None,
+        is_active: true,
+    };
+
     STATE.with(|state| {
         let mut state = state.borrow_mut();
-        let id = state.next_id;
-        let nft = SkillNFT {
-            id,
-            title,
-            description,
-            creator,
-            price,
-            unlock_duration,
-            metadata,
-            owner: creator,
-            resale_price: None,
-            is_active: true,
-        };
         state.nfts.insert(id, nft);
-        state.next_id += 1;
         info!("SkillNFT minted with ID: {}", id);
         Ok(id)
     })
@@ -142,6 +169,10 @@ fn purchase_skill_nft(nft_id: u64) -> Result<(), String> {
 /// Set a resale price for a purchased SkillNFT.
 #[update]
 fn set_resale_price(nft_id: u64, price: u64) -> Result<(), String> {
+    if price == 0 {
+        return Err("Resale price must be greater than zero".to_string());
+    }
+
     let owner = api::caller();
     STATE.with(|state| {
         let mut state = state.borrow_mut();
@@ -197,25 +228,57 @@ fn deactivate_nft(nft_id: u64) -> Result<(), String> {
     })
 }
 
-/// Add balance to a user's account.
+/// Transfer ownership of a SkillNFT to another user.
+#[update]
+fn transfer_nft_ownership(nft_id: u64, new_owner: Principal) -> Result<(), String> {
+    let caller = api::caller();
+
+    // Validate NFT and ownership
+    STATE.with(|state| {
+        let mut state = state.borrow_mut();
+        let nft = state.nfts.get_mut(&nft_id).ok_or("NFT not found".to_string())?;
+
+        if nft.owner != caller {
+            return Err("Only the current owner can transfer ownership".to_string());
+        }
+        if !nft.is_active {
+            return Err("Cannot transfer an inactive NFT".to_string());
+        }
+        if new_owner == caller {
+            return Err("New owner must be different from the current owner".to_string());
+        }
+
+        // Update ownership
+        nft.owner = new_owner;
+        nft.resale_price = None; // Reset resale price upon transfer
+        info!(
+            "NFT ID: {} ownership transferred from {:?} to {:?}",
+            nft_id, caller, new_owner
+        );
+        Ok(())
+    })
+}
+
+
+/// Add balance to a user's account securely.
 #[update]
 async fn add_balance(amount: u64) -> Result<(), String> {
+    if amount == 0 {
+        return Err("Amount must be greater than zero".to_string());
+    }
+
     let caller = api::caller();
     let canister_id = ic_cdk::id();
-
-    // Convert amount to Tokens
     let tokens = Tokens::from_e8s(amount);
-
     let transfer_args = TransferArgs {
         memo: Memo(0),
         amount: tokens,
-        fee: Tokens::from_e8s(10_000), // Standard ICP transaction fee
+        fee: Tokens::from_e8s(10_000),
         from_subaccount: None,
         to: AccountIdentifier::new(&canister_id, &Subaccount([0; 32])),
         created_at_time: None,
     };
 
-    // Call the ICP ledger canister to transfer tokens
     let transfer_result: Result<(u64,), _> = call(
         Principal::from_text(ICP_LEDGER_CANISTER_ID).unwrap(),
         "icrc1_transfer",
@@ -232,7 +295,7 @@ async fn add_balance(amount: u64) -> Result<(), String> {
                 Ok(())
             })
         }
-        Err(err) => Err(format!("Failed to call ledger canister: {:?}", err)),
+        Err(err) => Err(format!("Failed to add balance: {:?}", err)),
     }
 }
 
